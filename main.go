@@ -1,13 +1,21 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"sync/atomic"
+
+	"github.com/PrincessFluffyButt937/Chirpy/internal/database"
+
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	queries        *database.Queries
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -41,15 +49,20 @@ func (cfg *apiConfig) MetricsReset() http.Handler {
 	})
 }
 
-func HealthStatus(res http.ResponseWriter, req *http.Request) {
-	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	res.WriteHeader(200)
-	res.Write([]byte("OK"))
-}
-
-var cfg apiConfig
-
 func main() {
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Printf("DB err: %s", err)
+		fmt.Printf("Database connection failed: %s\n", err)
+		fmt.Println("Server startup aborted.")
+		db.Close()
+		return
+	}
+	defer db.Close()
+	cfg := apiConfig{
+		queries: database.New(db),
+	}
 	cfg.fileserverHits.Store(0)
 	ServeMux := http.NewServeMux()
 	FileSys := http.Dir(".")

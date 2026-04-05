@@ -84,3 +84,9 @@ func ValidateChirp(res http.ResponseWriter, req *http.Request) {
 	}
 	JsonResponce(res, 200, valid)
 }
+
+func HealthStatus(res http.ResponseWriter, req *http.Request) {
+	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	res.WriteHeader(200)
+	res.Write([]byte("OK"))
+}
