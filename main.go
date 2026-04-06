@@ -17,7 +17,6 @@ func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	dbPLATFORM := os.Getenv("PLATFORM")
-	fmt.Printf("url: %s\nplat: %s\n", dbURL, dbPLATFORM)
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Printf("DB err: %s", err)
@@ -41,6 +40,8 @@ func main() {
 	ServeMux.Handle("GET /admin/metrics", cfg.MetricsTotal())
 	ServeMux.Handle("POST /admin/reset", cfg.MetricsReset())
 	ServeMux.HandleFunc("POST /api/chirps", cfg.New_Chirp_handler)
+	ServeMux.HandleFunc("GET /api/chirps", cfg.Get_Chirps_handler)
+	ServeMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.Get_Chirp_By_ID_handler)
 	ServeMux.HandleFunc("POST /api/users", cfg.Create_user_handler)
 
 	server := http.Server{

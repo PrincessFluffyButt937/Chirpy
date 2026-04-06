@@ -156,6 +156,52 @@ func (cfg *apiConfig) New_Chirp_handler(res http.ResponseWriter, req *http.Reque
 	JsonResponce(res, 201, db_out)
 }
 
+func (cfg *apiConfig) Get_Chirps_handler(res http.ResponseWriter, req *http.Request) {
+	chirps, err := cfg.db.GetChirps(req.Context())
+	if err != nil {
+		msg := fmt.Sprintf("DB_GetChirps: %s", err)
+		ErrorResponce(res, 500, msg)
+		return
+	}
+	Chirp_L := make([]Created_chirp, len(chirps))
+
+	for i, chirp := range chirps {
+		temp := Created_chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
+		}
+		Chirp_L[i] = temp
+	}
+	JsonResponce(res, 200, Chirp_L)
+}
+
+func (cfg *apiConfig) Get_Chirp_By_ID_handler(res http.ResponseWriter, req *http.Request) {
+	ID := req.PathValue("chirpID")
+	UUID, err := uuid.Parse(ID)
+	if err != nil {
+		msg := fmt.Sprintf("uuid.Parse: %s", err)
+		ErrorResponce(res, 404, msg)
+		return
+	}
+	chirp, err := cfg.db.GetChirpByID(req.Context(), UUID)
+	if err != nil {
+		msg := fmt.Sprintf("DB_GetChirpByID: %s", err)
+		ErrorResponce(res, 404, msg)
+		return
+	}
+	return_chirp := Created_chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt,
+		UpdatedAt: chirp.UpdatedAt,
+		Body:      chirp.Body,
+		UserID:    chirp.UserID,
+	}
+	JsonResponce(res, 200, return_chirp)
+}
+
 type Error_json struct {
 	Err string `json:"error"`
 }
