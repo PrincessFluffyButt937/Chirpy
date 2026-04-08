@@ -43,6 +43,7 @@ func main() {
 	ServeMux.HandleFunc("GET /api/chirps", cfg.Get_Chirps_handler)
 	ServeMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.Get_Chirp_By_ID_handler)
 	ServeMux.HandleFunc("POST /api/users", cfg.Create_user_handler)
+	ServeMux.HandleFunc("POST /api/login", cfg.Login_user_handler)
 
 	server := http.Server{
 		Handler: ServeMux,

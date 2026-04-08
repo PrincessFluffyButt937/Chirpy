@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/PrincessFluffyButt937/Chirpy/internal/auth"
 	"github.com/PrincessFluffyButt937/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -72,7 +73,8 @@ type User struct {
 }
 
 type Create_user struct {
-	Email string `json:"email"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 func (cfg *apiConfig) Create_user_handler(res http.ResponseWriter, req *http.Request) {
@@ -83,13 +85,20 @@ func (cfg *apiConfig) Create_user_handler(res http.ResponseWriter, req *http.Req
 		ErrorResponce(res, 400, msg)
 		return
 	}
+	hashed_password, err := auth.HashPassword(user.Password)
+	if err != nil {
+		msg := fmt.Sprintf("HashPassword: %s", err)
+		ErrorResponce(res, 400, msg)
+		return
+	}
 
 	now := time.Now()
 	new_user := database.CreateUserParams{
-		ID:        uuid.New(),
-		CreatedAt: now,
-		UpdatedAt: now,
-		Email:     user.Email,
+		ID:             uuid.New(),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		Email:          user.Email,
+		HashedPassword: hashed_password,
 	}
 	db_user, err := cfg.db.CreateUser(req.Context(), new_user)
 	if err != nil {
@@ -104,6 +113,39 @@ func (cfg *apiConfig) Create_user_handler(res http.ResponseWriter, req *http.Req
 		Email:     db_user.Email,
 	}
 	JsonResponce(res, 201, Created_db_User)
+}
+
+func (cfg *apiConfig) Login_user_handler(res http.ResponseWriter, req *http.Request) {
+	user := Create_user{}
+	decoder := json.NewDecoder(req.Body)
+	if err := decoder.Decode(&user); err != nil {
+		msg := fmt.Sprintf("Login_user_handler: %s", err)
+		ErrorResponce(res, 400, msg)
+		return
+	}
+	db_user, err := cfg.db.GetUserByEmail(req.Context(), user.Email)
+	if err != nil {
+		msg := fmt.Sprintf("DB_GetUserByEmail: %s", err)
+		ErrorResponce(res, 400, msg)
+		return
+	}
+	match, err := auth.CheckPasswordHash(user.Password, db_user.HashedPassword)
+	if err != nil {
+		msg := fmt.Sprintf("CheckPasswordHash: %s", err)
+		ErrorResponce(res, 401, msg)
+		return
+	}
+	if !match {
+		ErrorResponce(res, 401, "Password is incorrect")
+		return
+	}
+	user_json := User{
+		ID:        db_user.ID,
+		CreatedAt: db_user.CreatedAt,
+		UpdatedAt: db_user.UpdatedAt,
+		Email:     db_user.Email,
+	}
+	JsonResponce(res, 200, user_json)
 }
 
 type New_chirp struct {
