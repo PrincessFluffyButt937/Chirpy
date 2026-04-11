@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,6 +19,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	db             *database.Queries
 	platform       string
+	secret         string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -65,11 +67,15 @@ func (cfg *apiConfig) MetricsReset() http.Handler {
 	})
 }
 
+// User auth
+
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID            uuid.UUID `json:"id"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	Email         string    `json:"email"`
+	Token         string    `json:"token"`
+	Refresh_Token string    `json:"refresh_token"`
 }
 
 type Create_user struct {
@@ -139,14 +145,98 @@ func (cfg *apiConfig) Login_user_handler(res http.ResponseWriter, req *http.Requ
 		ErrorResponce(res, 401, "Password is incorrect")
 		return
 	}
+	token, err := auth.MakeJWT(db_user.ID, cfg.secret, time.Duration(1)*time.Hour)
+	if err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	ref_token := auth.MakeRefreshToken()
+	now := time.Now()
+
+	refresh_token_data := database.CreateRefreshTokenParams{
+		Token:     ref_token,
+		CreatedAt: now,
+		UpdatedAt: now,
+		UserID:    db_user.ID,
+		ExpiresAt: now.Add(1440 * time.Hour),
+		RevokedAt: sql.NullTime{Valid: false},
+	}
+	if err := cfg.db.CreateRefreshToken(req.Context(), refresh_token_data); err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+
 	user_json := User{
-		ID:        db_user.ID,
-		CreatedAt: db_user.CreatedAt,
-		UpdatedAt: db_user.UpdatedAt,
-		Email:     db_user.Email,
+		ID:            db_user.ID,
+		CreatedAt:     db_user.CreatedAt,
+		UpdatedAt:     db_user.UpdatedAt,
+		Email:         db_user.Email,
+		Token:         token,
+		Refresh_Token: ref_token,
 	}
 	JsonResponce(res, 200, user_json)
 }
+
+type Access_Token struct {
+	Token string `json:"token"`
+}
+
+func (cfg *apiConfig) Refresh_access_token_handler(res http.ResponseWriter, req *http.Request) {
+	ref_token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	db_ref_token, err := cfg.db.GetRefreshToken(req.Context(), ref_token)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	if time.Now().After(db_ref_token.ExpiresAt) {
+		ErrorResponce(res, 401, "Token expired.")
+		return
+	}
+	if db_ref_token.RevokedAt.Valid {
+		ErrorResponce(res, 401, "Token revoked.")
+		return
+	}
+	token, err := auth.MakeJWT(db_ref_token.UserID, cfg.secret, time.Duration(1)*time.Hour)
+	if err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	Access_token_json := Access_Token{
+		Token: token,
+	}
+	JsonResponce(res, 200, Access_token_json)
+}
+
+func (cfg *apiConfig) Revoke_refresh_token_handler(res http.ResponseWriter, req *http.Request) {
+	ref_token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	db_ref_token, err := cfg.db.GetRefreshToken(req.Context(), ref_token)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	now := time.Now()
+	rewoke_params := database.RevokeRefreshTokenParams{
+		UpdatedAt: now,
+		RevokedAt: sql.NullTime{Time: now, Valid: true},
+		Token:     db_ref_token.Token,
+	}
+	if err := cfg.db.RevokeRefreshToken(req.Context(), rewoke_params); err != nil {
+		ErrorResponce(res, 500, err.Error())
+		return
+	}
+	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	res.WriteHeader(204)
+}
+
+// Chirps
 
 type New_chirp struct {
 	Body    string    `json:"body"`
@@ -173,6 +263,16 @@ func (cfg *apiConfig) New_Chirp_handler(res http.ResponseWriter, req *http.Reque
 		ErrorResponce(res, 400, "Chirp is too long")
 		return
 	}
+	token_string, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	UserID_from_token, err := auth.ValidateJWT(token_string, cfg.secret)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
 
 	now := time.Now()
 	chirp_param := database.CreateChirpParams{
@@ -180,7 +280,7 @@ func (cfg *apiConfig) New_Chirp_handler(res http.ResponseWriter, req *http.Reque
 		CreatedAt: now,
 		UpdatedAt: now,
 		Body:      chirp_body.Body,
-		UserID:    chirp_body.User_id,
+		UserID:    UserID_from_token,
 	}
 	db_chirp, err := cfg.db.CreateChirp(req.Context(), chirp_param)
 	if err != nil {

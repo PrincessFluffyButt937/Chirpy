@@ -16,7 +16,6 @@ import (
 func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
-	dbPLATFORM := os.Getenv("PLATFORM")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Printf("DB err: %s", err)
@@ -28,7 +27,8 @@ func main() {
 	defer db.Close()
 	cfg := apiConfig{
 		db:       database.New(db),
-		platform: dbPLATFORM,
+		platform: os.Getenv("PLATFORM"),
+		secret:   os.Getenv("SECRET_STRING"),
 	}
 	cfg.fileserverHits.Store(0)
 	ServeMux := http.NewServeMux()
@@ -44,6 +44,8 @@ func main() {
 	ServeMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.Get_Chirp_By_ID_handler)
 	ServeMux.HandleFunc("POST /api/users", cfg.Create_user_handler)
 	ServeMux.HandleFunc("POST /api/login", cfg.Login_user_handler)
+	ServeMux.HandleFunc("POST /api/refresh", cfg.Refresh_access_token_handler)
+	ServeMux.HandleFunc("POST /api/revoke", cfg.Revoke_refresh_token_handler)
 
 	server := http.Server{
 		Handler: ServeMux,
