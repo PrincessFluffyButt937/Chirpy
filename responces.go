@@ -184,7 +184,7 @@ type Access_Token struct {
 func (cfg *apiConfig) Refresh_access_token_handler(res http.ResponseWriter, req *http.Request) {
 	ref_token, err := auth.GetBearerToken(req.Header)
 	if err != nil {
-		ErrorResponce(res, 400, err.Error())
+		ErrorResponce(res, 401, err.Error())
 		return
 	}
 	db_ref_token, err := cfg.db.GetRefreshToken(req.Context(), ref_token)
@@ -214,7 +214,7 @@ func (cfg *apiConfig) Refresh_access_token_handler(res http.ResponseWriter, req 
 func (cfg *apiConfig) Revoke_refresh_token_handler(res http.ResponseWriter, req *http.Request) {
 	ref_token, err := auth.GetBearerToken(req.Header)
 	if err != nil {
-		ErrorResponce(res, 400, err.Error())
+		ErrorResponce(res, 401, err.Error())
 		return
 	}
 	db_ref_token, err := cfg.db.GetRefreshToken(req.Context(), ref_token)
@@ -234,6 +234,53 @@ func (cfg *apiConfig) Revoke_refresh_token_handler(res http.ResponseWriter, req 
 	}
 	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	res.WriteHeader(204)
+}
+
+func (cfg *apiConfig) Update_user_email_password_handler(res http.ResponseWriter, req *http.Request) {
+	jwt_token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	user := Create_user{}
+	decoder := json.NewDecoder(req.Body)
+	if err := decoder.Decode(&user); err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	token_UserID, err := auth.ValidateJWT(jwt_token, cfg.secret)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	new_hashed_password, err := auth.HashPassword(user.Password)
+	if err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	new_user_data := database.UpdateUserEmailPasswordParams{
+		Email:          user.Email,
+		HashedPassword: new_hashed_password,
+		UpdatedAt:      time.Now(),
+		ID:             token_UserID,
+	}
+	if err := cfg.db.UpdateUserEmailPassword(req.Context(), new_user_data); err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	db_user, err := cfg.db.GetUserByEmail(req.Context(), user.Email)
+	if err != nil {
+		ErrorResponce(res, 500, err.Error())
+		return
+	}
+	json_struct := User{
+		ID:        db_user.ID,
+		CreatedAt: db_user.CreatedAt,
+		UpdatedAt: db_user.UpdatedAt,
+		Email:     db_user.Email,
+		Token:     jwt_token,
+	}
+	JsonResponce(res, 200, json_struct)
 }
 
 // Chirps
@@ -342,6 +389,41 @@ func (cfg *apiConfig) Get_Chirp_By_ID_handler(res http.ResponseWriter, req *http
 		UserID:    chirp.UserID,
 	}
 	JsonResponce(res, 200, return_chirp)
+}
+
+func (cfg *apiConfig) Delete_Chirp_By_ID_handler(res http.ResponseWriter, req *http.Request) {
+	ID := req.PathValue("chirpID")
+	chirp_uuid, err := uuid.Parse(ID)
+	if err != nil {
+		msg := fmt.Sprintf("uuid.Parse: %s", err)
+		ErrorResponce(res, 404, msg)
+		return
+	}
+	access_token, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	user_id, err := auth.ValidateJWT(access_token, cfg.secret)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	db_chirp, err := cfg.db.GetChirpByID(req.Context(), chirp_uuid)
+	if err != nil {
+		ErrorResponce(res, 404, err.Error())
+		return
+	}
+	if db_chirp.UserID != user_id {
+		ErrorResponce(res, 403, "You are not authorized to delete this chirp.")
+		return
+	}
+	if err := cfg.db.DeleteChirpByID(req.Context(), db_chirp.ID); err != nil {
+		ErrorResponce(res, 500, err.Error())
+		return
+	}
+	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	res.WriteHeader(204)
 }
 
 type Error_json struct {
