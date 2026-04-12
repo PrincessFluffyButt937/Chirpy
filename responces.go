@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -351,25 +352,59 @@ func (cfg *apiConfig) New_Chirp_handler(res http.ResponseWriter, req *http.Reque
 }
 
 func (cfg *apiConfig) Get_Chirps_handler(res http.ResponseWriter, req *http.Request) {
-	chirps, err := cfg.db.GetChirps(req.Context())
-	if err != nil {
-		msg := fmt.Sprintf("DB_GetChirps: %s", err)
-		ErrorResponce(res, 500, msg)
-		return
-	}
-	Chirp_L := make([]Created_chirp, len(chirps))
-
-	for i, chirp := range chirps {
-		temp := Created_chirp{
-			ID:        chirp.ID,
-			CreatedAt: chirp.CreatedAt,
-			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			UserID:    chirp.UserID,
+	req_user_id := req.URL.Query().Get("author_id")
+	req_sort := req.URL.Query().Get("sort")
+	if req_user_id == "" {
+		chirps, err := cfg.db.GetChirps(req.Context())
+		if err != nil {
+			ErrorResponce(res, 500, err.Error())
+			return
 		}
-		Chirp_L[i] = temp
+		Chirp_L := make([]Created_chirp, len(chirps))
+
+		for i, chirp := range chirps {
+			temp := Created_chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				UserID:    chirp.UserID,
+			}
+			Chirp_L[i] = temp
+		}
+		if req_sort == "desc" {
+			sort.Slice(Chirp_L, func(i, j int) bool { return Chirp_L[i].CreatedAt.After(Chirp_L[j].CreatedAt) })
+		}
+
+		JsonResponce(res, 200, Chirp_L)
+	} else {
+		parsed_user_id, err := uuid.Parse(req_user_id)
+		if err != nil {
+			ErrorResponce(res, 400, err.Error())
+			return
+		}
+		chirps, err := cfg.db.GetChirpsByUserID(req.Context(), parsed_user_id)
+		if err != nil {
+			ErrorResponce(res, 400, err.Error())
+			return
+		}
+		Chirp_L := make([]Created_chirp, len(chirps))
+
+		for i, chirp := range chirps {
+			temp := Created_chirp{
+				ID:        chirp.ID,
+				CreatedAt: chirp.CreatedAt,
+				UpdatedAt: chirp.UpdatedAt,
+				Body:      chirp.Body,
+				UserID:    chirp.UserID,
+			}
+			Chirp_L[i] = temp
+		}
+		if req_sort == "desc" {
+			sort.Slice(Chirp_L, func(i, j int) bool { return Chirp_L[i].CreatedAt.After(Chirp_L[j].CreatedAt) })
+		}
+		JsonResponce(res, 200, Chirp_L)
 	}
-	JsonResponce(res, 200, Chirp_L)
 }
 
 func (cfg *apiConfig) Get_Chirp_By_ID_handler(res http.ResponseWriter, req *http.Request) {
