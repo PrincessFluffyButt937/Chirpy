@@ -20,6 +20,7 @@ type apiConfig struct {
 	db             *database.Queries
 	platform       string
 	secret         string
+	polka_key      string
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -76,6 +77,7 @@ type User struct {
 	Email         string    `json:"email"`
 	Token         string    `json:"token"`
 	Refresh_Token string    `json:"refresh_token"`
+	IsChirpyRed   bool      `json:"is_chirpy_red"`
 }
 
 type Create_user struct {
@@ -113,10 +115,11 @@ func (cfg *apiConfig) Create_user_handler(res http.ResponseWriter, req *http.Req
 		return
 	}
 	Created_db_User := User{
-		ID:        db_user.ID,
-		CreatedAt: db_user.CreatedAt,
-		UpdatedAt: db_user.UpdatedAt,
-		Email:     db_user.Email,
+		ID:          db_user.ID,
+		CreatedAt:   db_user.CreatedAt,
+		UpdatedAt:   db_user.UpdatedAt,
+		Email:       db_user.Email,
+		IsChirpyRed: db_user.IsChirpyRed,
 	}
 	JsonResponce(res, 201, Created_db_User)
 }
@@ -173,6 +176,7 @@ func (cfg *apiConfig) Login_user_handler(res http.ResponseWriter, req *http.Requ
 		Email:         db_user.Email,
 		Token:         token,
 		Refresh_Token: ref_token,
+		IsChirpyRed:   db_user.IsChirpyRed,
 	}
 	JsonResponce(res, 200, user_json)
 }
@@ -274,11 +278,12 @@ func (cfg *apiConfig) Update_user_email_password_handler(res http.ResponseWriter
 		return
 	}
 	json_struct := User{
-		ID:        db_user.ID,
-		CreatedAt: db_user.CreatedAt,
-		UpdatedAt: db_user.UpdatedAt,
-		Email:     db_user.Email,
-		Token:     jwt_token,
+		ID:          db_user.ID,
+		CreatedAt:   db_user.CreatedAt,
+		UpdatedAt:   db_user.UpdatedAt,
+		Email:       db_user.Email,
+		Token:       jwt_token,
+		IsChirpyRed: db_user.IsChirpyRed,
 	}
 	JsonResponce(res, 200, json_struct)
 }
@@ -425,6 +430,56 @@ func (cfg *apiConfig) Delete_Chirp_By_ID_handler(res http.ResponseWriter, req *h
 	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	res.WriteHeader(204)
 }
+
+// webhooks
+
+type Webhook struct {
+	Event string `json:"event"`
+	Data  struct {
+		User_ID string `json:"user_id"`
+	} `json:"data"`
+}
+
+func (cfg *apiConfig) Update_User_Chirp_Red(res http.ResponseWriter, req *http.Request) {
+	api_key, err := auth.GetApiKey(req.Header)
+	if err != nil {
+		ErrorResponce(res, 401, err.Error())
+		return
+	}
+	if api_key != cfg.polka_key {
+		ErrorResponce(res, 403, "Invalid ApiKey.")
+		return
+	}
+	hook := Webhook{}
+	decoder := json.NewDecoder(req.Body)
+	if err := decoder.Decode(&hook); err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	if hook.Event != "user.upgraded" {
+		res.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		res.WriteHeader(204)
+		return
+	}
+	user_uuid, err := uuid.Parse(hook.Data.User_ID)
+	if err != nil {
+		ErrorResponce(res, 400, err.Error())
+		return
+	}
+	new_user_data := database.UpdateUserIsChirpyRedParams{
+		IsChirpyRed: true,
+		UpdatedAt:   time.Now(),
+		ID:          user_uuid,
+	}
+	if err := cfg.db.UpdateUserIsChirpyRed(req.Context(), new_user_data); err != nil {
+		ErrorResponce(res, 404, err.Error())
+		return
+	}
+	res.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	res.WriteHeader(204)
+}
+
+// json responces
 
 type Error_json struct {
 	Err string `json:"error"`

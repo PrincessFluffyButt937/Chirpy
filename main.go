@@ -26,9 +26,10 @@ func main() {
 	}
 	defer db.Close()
 	cfg := apiConfig{
-		db:       database.New(db),
-		platform: os.Getenv("PLATFORM"),
-		secret:   os.Getenv("SECRET_STRING"),
+		db:        database.New(db),
+		platform:  os.Getenv("PLATFORM"),
+		secret:    os.Getenv("SECRET_STRING"),
+		polka_key: os.Getenv("POLKA_KEY"),
 	}
 	cfg.fileserverHits.Store(0)
 	ServeMux := http.NewServeMux()
@@ -48,6 +49,7 @@ func main() {
 	ServeMux.HandleFunc("POST /api/login", cfg.Login_user_handler)
 	ServeMux.HandleFunc("POST /api/refresh", cfg.Refresh_access_token_handler)
 	ServeMux.HandleFunc("POST /api/revoke", cfg.Revoke_refresh_token_handler)
+	ServeMux.HandleFunc("POST /api/polka/webhooks", cfg.Update_User_Chirp_Red)
 
 	server := http.Server{
 		Handler: ServeMux,
